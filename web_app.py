@@ -138,7 +138,7 @@ with col_left:
             uploaded_image = Image.open(cam_img).convert("RGB")
 
     if uploaded_image is not None:
-        st.image(uploaded_image, caption="Original image", use_container_width=True)
+        st.image(uploaded_image, caption="Original image", width="stretch")
 
 
 with col_right:
@@ -217,7 +217,7 @@ with col_right:
         output_placeholder.image(
             out_pil,
             caption=f"{style_name} result",
-            use_container_width=True,
+            width="stretch",
         )
         info_placeholder.caption(f"Processing time: {elapsed:.2f} s")
 
