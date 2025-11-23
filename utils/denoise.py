@@ -1,27 +1,19 @@
-# utils/denoise.py
-
 import cv2
 import numpy as np
 
 
 def bilateral_denoise(frame_bgr,
-                      d=9,
-                      sigma_color=75,
-                      sigma_space=75):
-    """
-    Classical bilateral filter denoising.
-    """
+                      d: int = 9,
+                      sigma_color: float = 75,
+                      sigma_space: float = 75):
     return cv2.bilateralFilter(frame_bgr, d, sigma_color, sigma_space)
 
 
 def anisotropic_diffusion_gray(img,
-                               n_iter=10,
-                               k=15,
-                               lam=0.25):
-    """
-    Perona-Malik anisotropic diffusion on grayscale image.
-    img: float32 array in [0,1]
-    """
+                               n_iter: int = 10,
+                               k: float = 15,
+                               lam: float = 0.25):
+
     img = img.astype(np.float32)
     out = img.copy()
 
@@ -43,5 +35,4 @@ def anisotropic_diffusion_gray(img,
 
         out = out + lam * (cN * dN + cS * dS + cE * dE + cW * dW)
 
-    out = np.clip(out, 0.0, 1.0)
-    return out
+    return np.clip(out, 0.0, 1.0)

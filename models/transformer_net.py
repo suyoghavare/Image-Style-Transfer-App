@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -6,23 +5,23 @@ import torch.nn.functional as F
 class DepthwiseSeparableBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        mid_channels = in_channels
+        mid = in_channels
 
         self.conv1 = nn.Conv2d(
-            in_channels, mid_channels,
+            in_channels, mid,
             kernel_size=1, stride=1, padding=0, bias=False
         )
-        self.in1 = nn.InstanceNorm2d(mid_channels, affine=True)
+        self.in1 = nn.InstanceNorm2d(mid, affine=True)
 
         self.conv2 = nn.Conv2d(
-            mid_channels, mid_channels,
+            mid, mid,
             kernel_size=3, stride=1, padding=1,
-            groups=mid_channels, bias=False
+            groups=mid, bias=False
         )
-        self.in2 = nn.InstanceNorm2d(mid_channels, affine=True)
+        self.in2 = nn.InstanceNorm2d(mid, affine=True)
 
         self.conv3 = nn.Conv2d(
-            mid_channels, out_channels,
+            mid, out_channels,
             kernel_size=1, stride=1, padding=0, bias=False
         )
         self.in3 = nn.InstanceNorm2d(out_channels, affine=True)
@@ -32,13 +31,15 @@ class DepthwiseSeparableBlock(nn.Module):
 
     def forward(self, x):
         identity = x
-        out = self.relu(self.in1(self.conv1(x)))
-        out = self.relu(self.in2(self.conv2(out)))
-        out = self.in3(self.conv3(out))
+
+        y = self.relu(self.in1(self.conv1(x)))
+        y = self.relu(self.in2(self.conv2(y)))
+        y = self.in3(self.conv3(y))
+
         if self.use_residual:
-            out = out + identity
-        out = self.relu(out)
-        return out
+            y = y + identity
+
+        return self.relu(y)
 
 
 class UpsampleBlock(nn.Module):
@@ -48,15 +49,11 @@ class UpsampleBlock(nn.Module):
         self.scale_factor = scale_factor
 
     def forward(self, x):
-        x = F.interpolate(x, scale_factor=self.scale_factor, mode="nearest")
-        x = self.conv1(x)
-        return x
+        y = F.interpolate(x, scale_factor=self.scale_factor, mode="nearest")
+        return self.conv1(y)
 
 
 class TransformerNet(nn.Module):
-    """
-    Architecture for mosaic.pth / picasso.pth / candy.pth
-    """
     def __init__(self):
         super().__init__()
 
@@ -98,12 +95,10 @@ class TransformerNet(nn.Module):
         y = self.upconv2(y)
         y = self.conv4(y)
 
-        return y  # scaling handled in utils/style_transfer.py
+        return y
 
-# --------------------------------------------------------------------------------------
-# Johnson-style network for udnie / wave / starry / lazy / tokyo_ghoul
-# (keys like "ConvBlock.*", "ResidualBlock.*", "DeconvBlock.*")
-# --------------------------------------------------------------------------------------
+
+#Johnson-style network
 
 class ConvBlockModule(nn.Module):
     def __init__(self, in_c, out_c, kernel_size, stride):
@@ -116,8 +111,7 @@ class ConvBlockModule(nn.Module):
     def forward(self, x):
         y = self.conv_layer(x)
         y = self.norm_layer(y)
-        y = self.relu(y)
-        return y
+        return self.relu(y)
 
 
 class ResidualModule(nn.Module):
@@ -146,8 +140,7 @@ class DeconvUpModule(nn.Module):
     def forward(self, x):
         y = self.conv_transpose(x)
         y = self.norm_layer(y)
-        y = self.relu(y)
-        return y
+        return self.relu(y)
 
 
 class DeconvOutModule(nn.Module):
@@ -163,50 +156,41 @@ class DeconvOutModule(nn.Module):
 
 
 class JohnsonNet(nn.Module):
-    """
-    Architecture for udnie.pth, wave.pth, starry.pth, lazy.pth, tokyo_ghoul.pth
-    (classic Johnson-style fast style transfer network)
-    """
     def __init__(self):
         super().__init__()
 
-        # indices 0/2/4 are used in the checkpoint as ConvBlock.0, .2, .4
         self.ConvBlock = nn.ModuleList([
-            ConvBlockModule(3, 32, 9, 1),   # ConvBlock.0
-            nn.Identity(),                  # ConvBlock.1 (no params)
-            ConvBlockModule(32, 64, 3, 2),  # ConvBlock.2
-            nn.Identity(),                  # ConvBlock.3
-            ConvBlockModule(64, 128, 3, 2), # ConvBlock.4
+            ConvBlockModule(3, 32, 9, 1),    
+            nn.Identity(),                   
+            ConvBlockModule(32, 64, 3, 2),    
+            nn.Identity(),                   
+            ConvBlockModule(64, 128, 3, 2),  
         ])
 
         self.ResidualBlock = nn.ModuleList([
-            ResidualModule(128),  # ResidualBlock.0
-            ResidualModule(128),  # ResidualBlock.1
-            ResidualModule(128),  # ResidualBlock.2
-            ResidualModule(128),  # ResidualBlock.3
-            ResidualModule(128),  # ResidualBlock.4
+            ResidualModule(128),  
+            ResidualModule(128),  
+            ResidualModule(128), 
+            ResidualModule(128), 
+            ResidualModule(128), 
         ])
 
-        # indices 0/2/4 used as DeconvBlock.0, .2, .4
         self.DeconvBlock = nn.ModuleList([
-            DeconvUpModule(128, 64),   # DeconvBlock.0
-            nn.Identity(),             # DeconvBlock.1
-            DeconvUpModule(64, 32),    # DeconvBlock.2
-            nn.Identity(),             # DeconvBlock.3
-            DeconvOutModule(32, 3),    # DeconvBlock.4
+            DeconvUpModule(128, 64),   
+            nn.Identity(),             
+            DeconvUpModule(64, 32),    
+            nn.Identity(),             
+            DeconvOutModule(32, 3),    
         ])
 
     def forward(self, x):
-        # encoder
         x = self.ConvBlock[0](x)
         x = self.ConvBlock[2](x)
         x = self.ConvBlock[4](x)
 
-        # residual blocks
         for res in self.ResidualBlock:
             x = res(x)
 
-        # decoder
         x = self.DeconvBlock[0](x)
         x = self.DeconvBlock[2](x)
         x = self.DeconvBlock[4](x)

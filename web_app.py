@@ -11,19 +11,17 @@ from utils.denoise import bilateral_denoise, anisotropic_diffusion_gray
 from utils.segmentation import load_person_segmenter, get_person_mask
 
 
-# Simple helper
-def pil_to_bgr(pil_img):
+def pil_to_bgr(pil_img: Image.Image) -> np.ndarray:
     rgb = np.array(pil_img.convert("RGB"))
-    bgr = rgb[:, :, ::-1].copy()
-    return bgr
+    return rgb[:, :, ::-1].copy()
 
 
-def bgr_to_pil(bgr_img):
+def bgr_to_pil(bgr_img: np.ndarray) -> Image.Image:
     rgb = bgr_img[:, :, ::-1]
     return Image.fromarray(rgb)
 
 
-def apply_anisotropic_color(frame_bgr):
+def apply_anisotropic_color(frame_bgr: np.ndarray) -> np.ndarray:
     lab = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2LAB)
     L, A, B = cv2.split(lab)
 
@@ -37,48 +35,47 @@ def apply_anisotropic_color(frame_bgr):
 
 @st.cache_resource
 def load_all_styles():
-    styles = {
-        "Mosaic":       load_transformer("weights/mosaic.pth"),
-        "Picasso":      load_transformer("weights/picasso.pth"),
-        "Candy":        load_transformer("weights/candy.pth"),
-        "Starry":       load_transformer("weights/starry.pth"),
-        "Wave":         load_transformer("weights/wave.pth"),
-        "Udnie":        load_transformer("weights/udnie.pth"),
-        "Lazy":         load_transformer("weights/lazy.pth"),
-        "Tokyo Ghoul":  load_transformer("weights/tokyo_ghoul.pth"),
+    return {
+        "Mosaic":      load_transformer("weights/mosaic.pth"),
+        "Picasso":     load_transformer("weights/picasso.pth"),
+        "Candy":       load_transformer("weights/candy.pth"),
+        "Starry":      load_transformer("weights/starry.pth"),
+        "Wave":        load_transformer("weights/wave.pth"),
+        "Udnie":       load_transformer("weights/udnie.pth"),
+        "Lazy":        load_transformer("weights/lazy.pth"),
+        "Tokyo Ghoul": load_transformer("weights/tokyo_ghoul.pth"),
     }
-    return styles
-
 
 
 @st.cache_resource
-def load_segmenter_cached():
-    return load_person_segmenter()  # returns (model, preprocess)
+def load_segmenter():
+    return load_person_segmenter()
 
 
 st.set_page_config(
     page_title="CS663 Style Transfer Demo",
-    layout="wide"
+    layout="wide",
 )
 
 st.title("Real Time Style Transfer Web")
 
 st.markdown(
-    "Upload an image or capture from camera, "
-    "choose a style and optionally apply it only on foreground or background."
+    "Upload an image or capture from camera, then choose style, denoising, "
+    "and whether to apply it on full frame, foreground, or background."
 )
 
-# Sidebar controls
 with st.sidebar:
     st.header("Controls")
 
     style_name = st.selectbox(
         "Style",
-        ["Mosaic", "Picasso", "Candy",
-         "Starry", "Wave", "Udnie", "Lazy", "Tokyo Ghoul"],
+        [
+            "Mosaic", "Picasso", "Candy",
+            "Starry", "Wave", "Udnie",
+            "Lazy", "Tokyo Ghoul",
+        ],
         index=0,
     )
-
 
     region_mode = st.radio(
         "Region to stylize",
@@ -106,14 +103,12 @@ with st.sidebar:
         max_value=720,
         value=480,
         step=64,
-        help="Smaller is faster"
+        help="Smaller is faster",
     )
 
     st.markdown("---")
-    st.caption("Made with love by Suyog & Karan ❤️")
+    st.caption("Made by Suyog and Karan")
 
-
-# Main area: input choice
 col_left, col_right = st.columns(2)
 
 with col_left:
@@ -129,7 +124,10 @@ with col_left:
     uploaded_image = None
 
     if input_mode == "Upload image":
-        file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+        file = st.file_uploader(
+            "Upload an image",
+            type=["jpg", "jpeg", "png"],
+        )
         if file is not None:
             uploaded_image = Image.open(io.BytesIO(file.read())).convert("RGB")
     else:
@@ -138,7 +136,7 @@ with col_left:
             uploaded_image = Image.open(cam_img).convert("RGB")
 
     if uploaded_image is not None:
-        st.image(uploaded_image, caption="Original image", width="stretch")
+        st.image(uploaded_image, caption="Original image")
 
 
 with col_right:
@@ -150,18 +148,16 @@ with col_right:
     if uploaded_image is None:
         output_placeholder.info("Upload or capture an image to see the result.")
     else:
-        # Load models
         styles = load_all_styles()
         model = styles[style_name]
 
-        seg_model, seg_preprocess = load_segmenter_cached()
+        seg_model, seg_preprocess = load_segmenter()
 
-        # Convert to BGR
         frame_bgr = pil_to_bgr(uploaded_image)
 
-        # Resize for speed
         h, w, _ = frame_bgr.shape
         scale = min(max_side / max(h, w), 1.0)
+
         if scale < 1.0:
             frame_small = cv2.resize(
                 frame_bgr,
@@ -171,7 +167,6 @@ with col_right:
         else:
             frame_small = frame_bgr
 
-        # Denoise
         if denoise_mode == "Bilateral":
             pre = bilateral_denoise(frame_small)
         elif denoise_mode == "Anisotropic":
@@ -181,25 +176,22 @@ with col_right:
 
         start_time = time.time()
 
-        # Full frame stylization
         styled_small = stylize_frame(pre, model, alpha=alpha)
 
-        # Region aware blending
         if region_mode != "Full image":
-            mask = get_person_mask(pre, seg_model, seg_preprocess)  # [H,W]
-            mask_3 = mask[:, :, None]  # [H,W,1]
+            mask = get_person_mask(pre, seg_model, seg_preprocess)
+            mask_3 = mask[:, :, None]
 
             pre_f = pre.astype("float32")
             styled_f = styled_small.astype("float32")
 
             if region_mode == "Foreground only":
                 mixed = styled_f * mask_3 + pre_f * (1.0 - mask_3)
-            else:  # Background only
+            else:
                 mixed = styled_f * (1.0 - mask_3) + pre_f * mask_3
 
             styled_small = mixed.clip(0, 255).astype("uint8")
 
-        # Upscale back
         if scale < 1.0:
             styled = cv2.resize(
                 styled_small,
@@ -213,15 +205,12 @@ with col_right:
 
         out_pil = bgr_to_pil(styled)
 
-        # show image
         output_placeholder.image(
             out_pil,
             caption=f"{style_name} result",
-            width="stretch",
         )
         info_placeholder.caption(f"Processing time: {elapsed:.2f} s")
 
-        # prepare download
         buf = io.BytesIO()
         out_pil.save(buf, format="PNG")
         buf.seek(0)
@@ -229,7 +218,6 @@ with col_right:
         download_placeholder.download_button(
             label="Download stylized image",
             data=buf,
-            file_name=f"{style_name.lower()}_styled.png",
+            file_name=f"{style_name.lower().replace(' ', '_')}_styled.png",
             mime="image/png",
         )
-

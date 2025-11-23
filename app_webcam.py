@@ -1,26 +1,12 @@
-# app_webcam.py
-
 import cv2
 import time
 
-from utils.denoise import (
-    bilateral_denoise,
-    anisotropic_diffusion_gray,
-)
-from utils.style_transfer import (
-    load_transformer,
-    stylize_frame,
-)
-from utils.segmentation import (
-    load_person_segmenter,
-    get_person_mask,
-)
+from utils.denoise import bilateral_denoise, anisotropic_diffusion_gray
+from utils.style_transfer import load_transformer, stylize_frame
+from utils.segmentation import load_person_segmenter, get_person_mask
 
 
 def apply_anisotropic_color(frame_bgr):
-    """
-    Apply anisotropic diffusion only on luminance (L in LAB).
-    """
     lab = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2LAB)
     L, A, B = cv2.split(lab)
 
@@ -33,25 +19,23 @@ def apply_anisotropic_color(frame_bgr):
 
 
 def main():
-    # style models (all share TransformerNet arch)
     styles = {
-        "1": ("Mosaic",       load_transformer("weights/mosaic.pth")),
-        "2": ("Picasso",      load_transformer("weights/picasso.pth")),
-        "3": ("Candy",        load_transformer("weights/candy.pth")),
-        "4": ("Starry",       load_transformer("weights/starry.pth")),
-        "5": ("Wave",         load_transformer("weights/wave.pth")),
-        "6": ("Udnie",        load_transformer("weights/udnie.pth")),
-        "7": ("Lazy",         load_transformer("weights/lazy.pth")),
-        "8": ("Tokyo Ghoul",  load_transformer("weights/tokyo_ghoul.pth")),
+        "1": ("Mosaic",      load_transformer("weights/mosaic.pth")),
+        "2": ("Picasso",     load_transformer("weights/picasso.pth")),
+        "3": ("Candy",       load_transformer("weights/candy.pth")),
+        "4": ("Starry",      load_transformer("weights/starry.pth")),
+        "5": ("Wave",        load_transformer("weights/wave.pth")),
+        "6": ("Udnie",       load_transformer("weights/udnie.pth")),
+        "7": ("Lazy",        load_transformer("weights/lazy.pth")),
+        "8": ("Tokyo Ghoul", load_transformer("weights/tokyo_ghoul.pth")),
     }
 
     current_key = "1"
     current_name, current_model = styles[current_key]
 
-    denoise_mode = "none"        # "none" / "bilateral" / "anisotropic"
-    region_mode = "full"         # "full" / "fg" / "bg"
+    denoise_mode = "none"
+    region_mode = "full"
 
-    # load segmentation model once
     seg_model, seg_preprocess = load_person_segmenter()
 
     cap = cv2.VideoCapture(0)
@@ -64,7 +48,6 @@ def main():
 
     print("Controls:")
     print("  1..8    - change style")
-
     print("  d       - cycle denoising: none -> bilateral -> anisotropic")
     print("  f       - stylize foreground (person) only")
     print("  b       - stylize background only")
@@ -76,10 +59,10 @@ def main():
         if not ret:
             break
 
-        # Resize for speed
         h, w, _ = frame.shape
         max_side = max(h, w)
         scale = min(360 / max_side, 1.0)
+
         if scale < 1.0:
             frame_small = cv2.resize(
                 frame,
@@ -89,7 +72,6 @@ def main():
         else:
             frame_small = frame
 
-        # Denoising
         if denoise_mode == "bilateral":
             pre = bilateral_denoise(frame_small)
         elif denoise_mode == "anisotropic":
@@ -97,28 +79,22 @@ def main():
         else:
             pre = frame_small
 
-        # Style transfer on whole (possibly small) frame
         styled_small = stylize_frame(pre, current_model)
 
-        # Foreground / background selection
         if region_mode != "full":
-            # person mask on the *pre* frame
-            mask = get_person_mask(pre, seg_model, seg_preprocess)  # [H,W]
-            mask_3 = mask[:, :, None]  # [H,W,1]
+            mask = get_person_mask(pre, seg_model, seg_preprocess)
+            mask_3 = mask[:, :, None]
 
             pre_f = pre.astype("float32")
             styled_f = styled_small.astype("float32")
 
             if region_mode == "fg":
-                # stylize only person
                 mixed = styled_f * mask_3 + pre_f * (1.0 - mask_3)
-            else:  # "bg"
-                # stylize only background
+            else:
                 mixed = styled_f * (1.0 - mask_3) + pre_f * mask_3
 
             styled_small = mixed.clip(0, 255).astype("uint8")
 
-        # Upscale back if we downscaled
         if scale < 1.0:
             styled = cv2.resize(
                 styled_small, (w, h),
@@ -127,15 +103,13 @@ def main():
         else:
             styled = styled_small
 
-        styled = styled.copy()  # contiguous for OpenCV
+        styled = styled.copy()
 
-        # FPS
         now = time.time()
         dt = now - prev_time
         prev_time = now
         fps = 0.9 * fps + 0.1 * (1.0 / max(dt, 1e-6))
 
-        # HUD text
         text1 = f"Style: {current_name} (keys 1..8)"
         text2 = f"Denoise: {denoise_mode} (key d)"
         text3 = f"Region: {region_mode} (a=all, f=fg, b=bg)"
@@ -148,12 +122,12 @@ def main():
             cv2.putText(
                 styled, txt, (10, y),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.7, (0, 0, 0), 3, cv2.LINE_AA
+                0.7, (0, 0, 0), 3, cv2.LINE_AA,
             )
             cv2.putText(
                 styled, txt, (10, y),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.7, (255, 255, 255), 1, cv2.LINE_AA
+                0.7, (255, 255, 255), 1, cv2.LINE_AA,
             )
 
         cv2.imshow("Real-time Style Transfer", styled)
@@ -165,7 +139,6 @@ def main():
                      ord("5"), ord("6"), ord("7"), ord("8")):
             current_key = chr(key)
             current_name, current_model = styles[current_key]
-
         elif key == ord("d"):
             if denoise_mode == "none":
                 denoise_mode = "bilateral"
