@@ -221,6 +221,9 @@ https://github.com/rrmina/fast-neural-style-pytorch/blob/master/transforms/udnie
 Project Google Drive:  
 https://drive.google.com/drive/folders/1fL4PVdlk9nVbPRUSgfi3NFebMX5O_0Hm?usp=sharing
 
+Kaggle reference notebook (image style transfer)
+https://www.kaggle.com/code/kxrxn0804/style-transfer
+
 Kaggle reference notebook (video stylization):  
 https://www.kaggle.com/code/kxrxn0804/style-transfer-video
 
